@@ -1,0 +1,13 @@
+--- a/plugins/lua/cmake/BuildLuaJIT.cmake.in
++++ b/plugins/lua/cmake/BuildLuaJIT.cmake.in
+@@ -71,6 +71,10 @@
+     if(NOT "@CMAKE_OSX_SYSROOT@" STREQUAL "")
+       string(APPEND target_flags " -isysroot \"@CMAKE_OSX_SYSROOT@\"")
+     endif()
++  elseif("@ANDROID@")
++    # The NDK toolchain passes these separately from CMAKE_C_FLAGS.
++    string(APPEND target_flags " --target=@CMAKE_C_COMPILER_TARGET@ --sysroot=\"@CMAKE_SYSROOT@\"")
++    list(APPEND make_args "TARGET_SYS=Linux" libluajit.a)
+   elseif("@MINGW@")
+     # LuaJIT must detect MSYS/Cygwin itself to select the matching shell syntax.
+     list(APPEND make_args "TARGET_SYS=Windows")

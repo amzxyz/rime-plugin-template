@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Rime 插件模板</string>
-    <string name="plugin_title">Rime 插件模板</string>
-    <string name="plugin_description">此应用为支持外部原生后端的 Rime 前端提供 librime.so。在前端中切换选择使用。</string>
+    <string name="app_name">Librime Evo 外置引擎</string>
+    <string name="plugin_title">Librime Evo 外置引擎</string>
+    <string name="plugin_description">此应用为支持外部原生后端的 Rime 前端提供 Librime Evo 引擎。在前端中切换选择使用。</string>
 </resources>

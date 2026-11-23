@@ -10,3 +10,4 @@ boost_1_89_0.tar.gz
 keystore.properties
 *.jks
 *.keystore
+*.p12

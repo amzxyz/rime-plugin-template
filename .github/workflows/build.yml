@@ -1,48 +1,74 @@
-name: Build
+name: Publish Evo Android APK
 
 on:
-  push:
-    branches: [master, main]
-    tags: ["v*"]
-  pull_request:
   workflow_dispatch:
-    inputs:
-      abis:
-        description: "Comma-separated ABIs (empty = all ABIs plus universal)"
-        required: false
-        default: ""
 
 permissions:
-  contents: read
+  actions: read
+  contents: write
 
-# Required repository secrets for signed release builds:
-#   KEYSTORE_BASE64     base64 of the .jks file
-#   KEYSTORE_PASSWORD
-#   KEY_ALIAS
-#   KEY_PASSWORD
-# Without them, release APKs are built unsigned.
+defaults:
+  run:
+    shell: bash
+
 env:
   NDK_VERSION: "28.2.13676358"
   CMAKE_VERSION: "3.31.6"
   BUILD_TOOLS_VERSION: "36.0.0"
-  KEYSTORE_FILE: ${{ github.workspace }}/release.jks
-  KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-  KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-  KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+          persist-credentials: false
 
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
+
+      - name: Check release configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [[ -z "$SIGNING_KEY" || -z "$KEY_STORE_PASSWORD" || -z "$ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo "::error::Set SIGNING_KEY, KEY_STORE_PASSWORD, ALIAS, and KEY_PASSWORD."
+            exit 1
+          fi
+          umask 077
+          keystore=$(mktemp "$RUNNER_TEMP/evo-keystore.XXXXXX")
+          trap 'rm -f "$keystore"' EXIT
+          if ! printf '%s' "$SIGNING_KEY" | base64 -d > "$keystore"; then
+            echo "::error::SIGNING_KEY must contain the Base64 of the keystore file."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$keystore" -storepass:env KEY_STORE_PASSWORD >/dev/null; then
+            echo "::error::Cannot open SIGNING_KEY with KEY_STORE_PASSWORD. Check the keystore file and its store password."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$keystore" -storepass:env KEY_STORE_PASSWORD -alias "$ALIAS" >/dev/null; then
+            echo "::error::ALIAS was not found in the keystore."
+            exit 1
+          fi
+
+          started_at=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')
+          release_date=$(TZ=Asia/Shanghai date --date="$started_at" +%Y.%m.%d)
+          version="$release_date.$GITHUB_RUN_NUMBER"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "::error::Release v$version already exists."
+            exit 1
+          fi
+          printf 'RELEASE_VERSION=%s\nAPK_NAME=librime-evo-v%s-arm64-v8a.apk\n' \
+            "$version" "$version" >> "$GITHUB_ENV"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -51,7 +77,7 @@ jobs:
 
       - name: Install NDK, CMake, and build tools
         run: |
-          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --licenses < <(yes) > /dev/null
           sdkmanager --install \
             "ndk;$NDK_VERSION" \
             "cmake;$CMAKE_VERSION" \
@@ -71,32 +97,60 @@ jobs:
           path: boost_1_89_0.tar.gz
           key: boost-1.89.0
 
-      - name: Restore signing keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > release.jks
-          else
-            echo "KEYSTORE_BASE64 is not set; release APK will be unsigned."
-          fi
-
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Build debug and release APKs
-        env:
-          BUILD_ABIS: ${{ inputs.abis }}
+      - name: Build ARM64 release APK
         run: |
-          if [ -n "$BUILD_ABIS" ]; then
-            ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon -PbuildABI="$BUILD_ABIS"
-          else
-            ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon
-          fi
+          ./gradlew :app:assembleRelease --no-daemon \
+            -PpluginVersionName="$RELEASE_VERSION" -PpluginVersionCode="$GITHUB_RUN_NUMBER"
 
-      - name: Upload APKs
-        uses: actions/upload-artifact@v7
-        with:
-          name: rime-plugin-template
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
+      - name: Sign and verify the APK
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          umask 077
+          keystore=$(mktemp "$RUNNER_TEMP/evo-keystore.XXXXXX")
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$SIGNING_KEY" | base64 -d > "$keystore"
+
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          if [[ ${#apks[@]} -ne 1 ]]; then
+            echo "::error::Expected one ARM64 release APK."
+            exit 1
+          fi
+          tools="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION"
+          aligned="$RUNNER_TEMP/evo-aligned.apk"
+          mkdir -p dist
+          apk="dist/$APK_NAME"
+          "$tools/zipalign" -f -P 16 4 "${apks[0]}" "$aligned"
+          "$tools/apksigner" sign --ks "$keystore" \
+            --ks-key-alias "$ALIAS" --ks-pass env:KEY_STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD --out "$apk" "$aligned"
+          "$tools/apksigner" verify --verbose --print-certs "$apk"
+          "$tools/aapt" dump badging "$apk" | awk -v package="name='org.rime.plugin.evo'" -v version="versionName='$RELEASE_VERSION'" -v abi="'arm64-v8a'" '
+              $1 == "package:" && $2 == package && $4 == version { valid_package = 1; print }
+              $1 == "native-code:" && $2 == abi && NF == 2 { valid_abi = 1; print }
+              END { if (!(valid_package && valid_abi)) exit 1 }
+          '
+          python3 - "$apk" <<'PYTHON'
+          import sys
+          from zipfile import ZipFile
+
+          with ZipFile(sys.argv[1]) as apk:
+              libraries = {name for name in apk.namelist() if name.endswith(".so")}
+              if libraries != {"lib/arm64-v8a/librime.so"}:
+                  raise SystemExit(f"Unexpected libraries: {libraries}")
+          PYTHON
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$RELEASE_VERSION" "dist/$APK_NAME" \
+            --target "$GITHUB_SHA" --title "Librime Evo Android v$RELEASE_VERSION" \
+            --notes "适用于支持外置 Rime 引擎的 64 位 ARM Android 前端。"

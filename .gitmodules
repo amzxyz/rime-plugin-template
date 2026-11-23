@@ -1,3 +1,6 @@
 [submodule "lib/librime"]
 	path = lib/librime
-	url = https://github.com/rime/librime.git
+	url = https://github.com/amzxyz/librime-evo.git
+[submodule "lib/evo-octagram"]
+	path = lib/evo-octagram
+	url = https://github.com/amzxyz/librime-evo-octagram.git
