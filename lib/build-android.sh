@@ -25,7 +25,7 @@ if [[ ! -x "$cmake" || ! -x "$ninja" || ! -f "$toolchain" ]]; then
 fi
 if [[ ! -f "$lib_dir/librime/plugins/lua/thirdparty/luajit/src/lua.h" ||
       ! -f "$lib_dir/evo-octagram/CMakeLists.txt" ]]; then
-    echo 'Initialize sources with git submodule update --init --recursive.' >&2
+    echo 'Missing Evo LuaJIT or Octagram source. Check the CI Evo/Lua checkout and recursive submodules.' >&2
     exit 1
 fi
 
@@ -75,7 +75,7 @@ build_dependency leveldb -DLEVELDB_BUILD_TESTS=OFF -DLEVELDB_BUILD_BENCHMARKS=OF
 build_dependency marisa-trie -DENABLE_TOOLS=OFF
 build_dependency yaml-cpp -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF
 
-RIME_PLUGINS=amzxyz/librime-evo-octagram \
+RIME_PLUGINS="lua evo-octagram" \
     "$cmake" -S "$source_dir" -B "$abi_root/librime" "${args[@]}" \
     "-DCMAKE_PREFIX_PATH=$prefix" \
     "-DLevelDb_INCLUDE_PATH=$prefix/include" "-DLevelDb_LIBRARY=$prefix/lib/libleveldb.a" \
@@ -86,7 +86,7 @@ RIME_PLUGINS=amzxyz/librime-evo-octagram \
     "-DBoost_INCLUDE_DIR=$boost" -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
     -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC=ON -DBUILD_TEST=OFF -DBUILD_TOOLS=OFF \
     -DBUILD_MERGED_PLUGINS=ON -DBUILD_SEPARATE_LIBS=OFF
-RIME_PLUGINS=amzxyz/librime-evo-octagram \
+RIME_PLUGINS="lua evo-octagram" \
     "$cmake" --build "$abi_root/librime" --target rime --parallel "$jobs"
 nm="$sdk/ndk/$ndk/toolchains/llvm/prebuilt"
 prebuilt=( "$nm"/* )

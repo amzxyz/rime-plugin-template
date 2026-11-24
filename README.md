@@ -27,9 +27,11 @@ APK 内含 Evo、LuaJIT 和 Evo Octagram。方案、词库及 `.dlm` 模型由�
 ```sh
 git clone --recursive https://github.com/amzxyz/rime-plugin-template.git
 cd rime-plugin-template
+git clone --depth 1 --recurse-submodules https://github.com/amzxyz/librime-evo-lua.git lib/librime/plugins/lua
 ./gradlew :app:assembleRelease
 ```
 
 本地签名可按 `keystore.properties.example` 配置。
-`lib/librime` 和 `lib/evo-octagram` 固定源码版本，LuaJIT 随 Evo 递归获取。
-更新组件时在本仓库提交新的子模块指针。运行 `./gradlew :app:rimeClean` 可清理原生编译缓存。
+本地克隆默认使用仓库锁定的 `lib/librime` 和 `lib/evo-octagram` 子模块版本。
+CI 每次发布前会拉取 `librime-evo/main` 的最新提交，并将最新的 `librime-evo-lua` 克隆到 `plugins/lua`；
+LuaJIT 使用 Lua 插件自身锁定的版本。`lib/evo-octagram` 继续使用模板仓库锁定的提交。运行 `./gradlew :app:rimeClean` 可清理原生编译缓存。

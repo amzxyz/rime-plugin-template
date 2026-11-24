@@ -27,6 +27,21 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      # Always compile the latest Evo main, not the pinned submodule revision.
+      - name: Update Evo core and Lua plugin
+        run: |
+          git -C lib/librime fetch --no-tags origin main
+          git -C lib/librime checkout --detach FETCH_HEAD
+          git -C lib/librime submodule sync --recursive
+          git -C lib/librime submodule update --init --recursive
+          # Keep the conventional plugins/lua path while using Evo's separate Lua repository.
+          rm -rf lib/librime/plugins/lua
+          git clone --depth 1 --recurse-submodules https://github.com/amzxyz/librime-evo-lua.git lib/librime/plugins/lua
+          test -f lib/librime/plugins/lua/thirdparty/luajit/src/lua.h
+          echo "Evo core: $(git -C lib/librime rev-parse HEAD)"
+          echo "Lua plugin: $(git -C lib/librime/plugins/lua rev-parse HEAD)"
+          echo "Octagram: $(git -C lib/evo-octagram rev-parse HEAD)"
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
